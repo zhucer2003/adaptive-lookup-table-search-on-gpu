@@ -275,14 +275,20 @@ void interpolation_cpu(int N, float* value_x, float *value_y, int* index_g, int 
 	    var[1] = x_ref>=y_ref? T2_list_d[j]: T3_list_d[j] ;
 	    var[2] = x_ref>=y_ref? T3_list_d[j]: T4_list_d[j];
 
-	float A = y_nodes[0]*(var[1]- var[2])  +  y_nodes[1]*(var[2] - var[0]) +  y_nodes[2]*(var[0] - var[1]);
+	    float A = y_nodes[0]*(var[1]- var[2])  + 
+                      y_nodes[1]*(var[2] - var[0]) +  
+                      y_nodes[2]*(var[0] - var[1]);
 
-	float B = var[0]*(x_nodes[1] - x_nodes[2]) + var[1]*(x_nodes[2] - x_nodes[0]) +  var[2]*(x_nodes[0] - x_nodes[1]);
+	    float B = var[0]*(x_nodes[1] - x_nodes[2]) 
+                      + var[1]*(x_nodes[2] - x_nodes[0]) 
+                      +  var[2]*(x_nodes[0] - x_nodes[1]);
 
-	float C = x_nodes[0]*(y_nodes[1] - y_nodes[2]) + x_nodes[1]*(y_nodes[2] - y_nodes[0]) + x_nodes[2]*(y_nodes[0] - y_nodes[1]);
+	    float C = x_nodes[0]*(y_nodes[1] - y_nodes[2]) +
+                      x_nodes[1]*(y_nodes[2] - y_nodes[0]) + 
+                      x_nodes[2]*(y_nodes[0] - y_nodes[1]);
 
-	float D = -A*x_nodes[0] - B*y_nodes[0] - C*var[0];
-	interp_value[i] = -(A*value_x[i] + B*value_y[i] + D)/C;
+	    float D = -A*x_nodes[0] - B*y_nodes[0] - C*var[0];
+	    interp_value[i] = -(A*value_x[i] + B*value_y[i] + D)/C;
 
    }
 }
@@ -302,6 +308,8 @@ int main(int argc, char *argv[])
   cl_int          err;
   char           *opencl_ex_ptr;
 
+  cl_device_id    device_query_id[MAX_PLATFORMS] ;
+  cl_uint num_entries, num_devices;
   cl_command_queue queue;
   cl_program      program;
   cl_kernel       kernel[2]={NULL, NULL};
@@ -313,13 +321,13 @@ int main(int argc, char *argv[])
   float *centerx_list, *centery_list; //*width_cpu;
   float *T1_list, *T2_list, *T3_list, *T4_list,*P1_list, *P2_list,*P3_list, *P4_list; // variable lists
         
-
+  /********************* check device and platform information***********/
   OPENCL_SAFE_CALL(clGetPlatformIDs(MAX_PLATFORMS, platforms,
                                         &num_platforms));
-  cl_device_id    device_query_id[MAX_PLATFORMS] ;
-  cl_uint num_entries, num_devices;
-   assert(num_platforms<=MAX_PLATFORMS);  
-   printf("platform information: %d\n", num_platforms);
+  
+  assert(num_platforms<=MAX_PLATFORMS);  
+  printf("platform information: %d\n", num_platforms);
+  
   for (i = 0; i < num_platforms; ++i) {
     char            buf[BUFSIZ];
     
@@ -354,72 +362,68 @@ int main(int argc, char *argv[])
         device_query_id,
         &num_devices));
     assert(num_devices<= MAX_PLATFORMS);
+    
     printf("device information: %d\n", num_devices);
     printf("number of device: %d\n", num_devices);
     for (int j = 0; j < num_devices; ++j) {
-    char            buf[BUFSIZ];
 
-    printf("%3d: ", (int) j);
+        printf("%3d: ", (int) j);
 
-    OPENCL_SAFE_CALL(clGetDeviceInfo(device_query_id[j],CL_DEVICE_NAME,
+        OPENCL_SAFE_CALL(clGetDeviceInfo(device_query_id[j],CL_DEVICE_NAME,
                                            sizeof(buf), buf, NULL));
 
-       printf("%s \n  ", buf);
+        printf("%s \n  ", buf);
 
-    OPENCL_SAFE_CALL(clGetDeviceInfo(device_query_id[j],CL_DEVICE_VERSION,
+        OPENCL_SAFE_CALL(clGetDeviceInfo(device_query_id[j],CL_DEVICE_VERSION,
                                            sizeof(buf), buf, NULL));
 
-       printf("%s \n  ", buf);
-      }
+        printf("%s \n  ", buf);
+    }
 
   }
   
   // read the data
 
-        ifstream myfile("RPTBDB.dat");
-        myfile >> num_nodes;
-        myfile >> ymin >> ymax >> xmin >> xmax;
-        myfile >> num_leafs >> rootwidth >> rootwidth;
-        
-        unsigned int bytes; 
-        int fbytes = num_leafs*sizeof(float);
- 	bytes = num_leafs * sizeof(int);
-	int dbytes = sizeof(float);
-	
-        level_list = (int *) malloc( bytes);
-	leaf_list = (int  *) malloc( bytes);
-	centerx_list = (float *) malloc( fbytes);
-	centery_list= (float *) malloc( fbytes);
-	T1_list = (float *) malloc( fbytes);
-	T2_list = (float *) malloc( fbytes);
-	T3_list= (float *) malloc( fbytes);
-	T4_list= (float *) malloc( fbytes);
-	P1_list = (float *) malloc( fbytes);
-	P2_list = (float *) malloc( fbytes);
-	P3_list= (float *) malloc( fbytes);
-	P4_list= (float *) malloc( fbytes);
-        if (myfile.is_open())
-	{
-	  for(int i=0;i< num_leafs; i++){
-	     myfile >> level_list[i] >> leaf_list[i];
-	     myfile >> centerx_list[i] >> centery_list[i];
-	     myfile >> T1_list[i] >> P1_list[i];
-	     myfile >> T2_list[i] >> P2_list[i];
-	     myfile >> T3_list[i] >> P3_list[i];
-	     myfile >> T4_list[i] >> P4_list[i];
-             }
-	}
-	myfile.close();
+  ifstream myfile("RPTBDB.dat");
+  myfile >> num_nodes;
+  myfile >> ymin >> ymax >> xmin >> xmax;
+  myfile >> num_leafs >> rootwidth >> rootwidth;
+  
+  unsigned int bytes; 
+  int fbytes = num_leafs*sizeof(float);
+  bytes = num_leafs * sizeof(int);
+  int dbytes = sizeof(float);
+  
+  level_list = (int *) malloc( bytes);
+  leaf_list = (int  *) malloc( bytes);
+  centerx_list = (float *) malloc( fbytes);
+  centery_list= (float *) malloc( fbytes);
+  T1_list = (float *) malloc( fbytes);
+  T2_list = (float *) malloc( fbytes);
+  T3_list= (float *) malloc( fbytes);
+  T4_list= (float *) malloc( fbytes);
+  P1_list = (float *) malloc( fbytes);
+  P2_list = (float *) malloc( fbytes);
+  P3_list= (float *) malloc( fbytes);
+  P4_list= (float *) malloc( fbytes);
+  if (myfile.is_open())
+  {
+    for(int i=0;i< num_leafs; i++){
+       myfile >> level_list[i] >> leaf_list[i];
+       myfile >> centerx_list[i] >> centery_list[i];
+       myfile >> T1_list[i] >> P1_list[i];
+       myfile >> T2_list[i] >> P2_list[i];
+       myfile >> T3_list[i] >> P3_list[i];
+       myfile >> T4_list[i] >> P4_list[i];
+     }
+   }
+  myfile.close();
 
-	int size= num_leafs; // numbet of elements to reduce 
+  int size= num_leafs; // numbet of elements to reduce 
 
+  // choose right platform and devices 
   assert(num_platforms > 0);
   
- #if 0 
-  OPENCL_SAFE_CALL(clGetDeviceIDs(platforms[0], (cl_device_type)
-                                      CL_DEVICE_TYPE_DEFAULT, 1,
-                                      &device_id, NULL));
-#endif
   OPENCL_SAFE_CALL(clGetDeviceIDs(platforms[0],
         CL_DEVICE_TYPE_ALL,
         MAX_PLATFORMS,
@@ -436,37 +440,37 @@ int main(int argc, char *argv[])
   OPENCL_CHECK_ERR(err);
 
 
-	// allocate variables on GPU
-	cl_mem level_list_d=NULL, leaf_list_d=NULL;
-        cl_mem centerx_list_d=NULL, centery_list_d=NULL;
-	cl_mem T1_list_d=NULL, T2_list_d=NULL, T3_list_d=NULL, T4_list_d=NULL;
-        cl_mem index_g =NULL;
-        cl_mem value_x_d=NULL, value_y_d=NULL, interp_d=NULL ;
-        float *interp_h, *interp=NULL;
-        int *index, *index_cpu;
-        float *value_x=NULL, *value_y=NULL;
+ // allocate variables on GPU
+ cl_mem level_list_d=NULL, leaf_list_d=NULL;
+ cl_mem centerx_list_d=NULL, centery_list_d=NULL;
+ cl_mem T1_list_d=NULL, T2_list_d=NULL, T3_list_d=NULL, T4_list_d=NULL;
+ cl_mem index_g =NULL;
+ cl_mem value_x_d=NULL, value_y_d=NULL, interp_d=NULL ;
+ float *interp_h, *interp=NULL;
+ int *index, *index_cpu;
+ float *value_x=NULL, *value_y=NULL;
 
-        //rescale the input the data 
-        value_x = (float *) malloc( N*dbytes);
-        value_y = (float *) malloc( N*dbytes);
-        index = (int *) malloc( N*sizeof(int));
-        interp_h = (float *) malloc( N*dbytes);
-        interp = (float *) malloc( N*dbytes);
+ //rescale the input the data 
+ value_x = (float *) malloc( N*dbytes);
+ value_y = (float *) malloc( N*dbytes);
+ index = (int *) malloc( N*sizeof(int));
+ interp_h = (float *) malloc( N*dbytes);
+ interp = (float *) malloc( N*dbytes);
 
-        drndset(9);
-        index_cpu = (int *) malloc( N*sizeof(int));
+drndset(9);
+index_cpu = (int *) malloc( N*sizeof(int));
 
-        for (int i=0; i < N; i++){
-		value_x[i] = drnd()*600 + 400;
-		value_y[i] = drnd()*2.0 - 1.0;
-		value_x[i] = (value_x[i]-xmin)/(xmax-xmin);
-		value_y[i] = (value_y[i]-ymin)/(ymax-ymin);
-                index[i] = -1;
-                index_cpu[i]=-1;
-                interp[i] = -1;
-                interp_h[i] = -1;
-                //cout << i << " " <<value_x[i] << " " << value_y[i]<<endl;
-        }
+for (int i=0; i < N; i++){
+	value_x[i] = drnd()*600 + 400;
+	value_y[i] = drnd()*2.0 - 1.0;
+	value_x[i] = (value_x[i]-xmin)/(xmax-xmin);
+	value_y[i] = (value_y[i]-ymin)/(ymax-ymin);
+        index[i] = -1;
+        index_cpu[i]=-1;
+        interp[i] = -1;
+        interp_h[i] = -1;
+        //cout << i << " " <<value_x[i] << " " << value_y[i]<<endl;
+}
 
     clock_t starttime, endtime; 
     starttime = clock();
@@ -518,12 +522,7 @@ int main(int argc, char *argv[])
    interp_d = clCreateBuffer(context, (cl_mem_flags) CL_MEM_COPY_HOST_PTR,
                           sizeof(float) * N, interp, &err);
   OPENCL_CHECK_ERR(err);
-  //cl_mem width;
-  //width_cpu = (float *)  malloc(size*sizeof(float));
-
-  //width = clCreateBuffer(context, (cl_mem_flags) CL_MEM_COPY_HOST_PTR,
-  //                        sizeof(float) * size, index, &err);
-  OPENCL_CHECK_ERR(err);
+  // build the program 
   opencl_ex_ptr = (char *) opencl_ex;
   program = clCreateProgramWithSource(context, 1,
                                       (const char **) &opencl_ex_ptr,
@@ -583,6 +582,7 @@ int main(int argc, char *argv[])
   local_work_size = BLOCK_SIZE;
   size_t    global_work_size =  ((num_leafs -1 +local_work_size)/local_work_size)*local_work_size;
   printf("num_cells: %d , blocksize: %d, num_threads : %d\n", num_leafs, local_work_size, global_work_size);
+  
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 0, sizeof(int), &num_leafs));
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 1, sizeof( unsigned int), &N));
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 5, sizeof(level_list_d), &level_list_d));
@@ -592,7 +592,6 @@ int main(int argc, char *argv[])
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 2, sizeof(value_x_d), &value_x_d));
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 3, sizeof(value_y_d), &value_y_d));
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 4, sizeof(index_g), &index_g));
-  //OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 9, sizeof(width), &width));
   
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 0, sizeof(const unsigned int), &N));
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 4, sizeof(level_list_d), &level_list_d));
@@ -621,7 +620,6 @@ int main(int argc, char *argv[])
   float search_time = (end - start)/1000000.0; 
   printf("pass the search_kernel!!\n");
  
-#if 1
   global_work_size =  ((N -1 +local_work_size)/local_work_size)*local_work_size;
  
   printf("num_cells: %d , blocksize: %d, global_num_threads : %d\n", num_leafs, local_work_size, global_work_size);
@@ -629,29 +627,23 @@ int main(int argc, char *argv[])
                        (queue, kernel[1], 1, NULL,  &global_work_size, &local_work_size, 0,
                         NULL, &event[1])
                   );
-#endif
-#if 1
-  printf("pass the interpolation_kernel!!\n");
   OPENCL_SAFE_CALL(clWaitForEvents (1, &event[1]));
-  printf("pass the interpolation_kernel!!\n");
   OPENCL_SAFE_CALL(clGetEventProfilingInfo (event[1], CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start,
   NULL));
-  printf("pass the interpolation_kernel!!\n");
   OPENCL_SAFE_CALL(clGetEventProfilingInfo(event[1], CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL));
-  printf("pass the interpolation_kernel!!\n");
-#endif
+  
   float interpolation_time = (end - start)/1000000.0; 
+  // output the result
   OPENCL_SAFE_CALL(clEnqueueReadBuffer
                        (queue, index_g, CL_TRUE, 0, sizeof(int) * N,
                         index, 0, NULL, NULL)
                   );
   printf("pass the interpolation_kernel!!\n");
-#if 1 
+  
   OPENCL_SAFE_CALL(clEnqueueReadBuffer
                        (queue, interp_d, CL_TRUE, 0, sizeof(float) * N,
                         interp_h, 0, NULL, NULL)
                   );
-#endif
     // check the result
     for (int i=0; i < N; i++){
        assert(interp[i]=interp_h[i]);
@@ -663,9 +655,9 @@ int main(int argc, char *argv[])
        //printf("the value is cell :%d %d %d %f %f\n",i, index[i],index_cpu[i], interp_h[i], interp[i] ); 
     }
     
-    //output the time
-    printf(" GPU: search_time:%10.5f [ms], interpolation time:%10.5f[ms], total time: %10.5f\n", search_time, interpolation_time, search_time + interpolation_time); 
-     printf("CPU %ld ms\n", (int) (1000.0f * (endtime - starttime) / CLOCKS_PER_SEC));
+  //output the time
+  printf(" GPU: search_time:%10.5f [ms], interpolation time:%10.5f[ms], total time: %10.5f\n", search_time, interpolation_time, search_time + interpolation_time); 
+  printf("CPU %ld ms\n", (int) (1000.0f * (endtime - starttime) / CLOCKS_PER_SEC));
 
   /* --------------clean up------------------*/
   OPENCL_SAFE_CALL(clReleaseEvent(event[0])) ;
@@ -689,23 +681,23 @@ int main(int argc, char *argv[])
   OPENCL_SAFE_CALL(clReleaseMemObject(interp_d));
   OPENCL_SAFE_CALL(clReleaseCommandQueue(queue));
   OPENCL_SAFE_CALL(clReleaseContext(context));
-        free(index);
-        free(level_list);
-	free(leaf_list);
-	free(centerx_list);
-	free(centery_list);
-	free(value_x);
-	free(value_y);
-	free(T1_list);
-        free(T2_list);
-	free(T3_list);
-	free(T4_list);
-	free(interp_h);
-	free(interp);
-	free(index_cpu);
-	free(P1_list);
-        free(P2_list);
-	free(P3_list);
-	free(P4_list);
+  free(index);
+  free(level_list);
+  free(leaf_list);
+  free(centerx_list);
+  free(centery_list);
+  free(value_x);
+  free(value_y);
+  free(T1_list);
+  free(T2_list);
+  free(T3_list);
+  free(T4_list);
+  free(interp_h);
+  free(interp);
+  free(index_cpu);
+  free(P1_list);
+  free(P2_list);
+  free(P3_list);
+  free(P4_list);
   return failures;
 }
