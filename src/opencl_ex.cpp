@@ -33,6 +33,7 @@
 
 #include <opencl_ex.h>
 
+ 
 #define MULT 1103515245
 #define ADD 12345
 #define MASK 0x7FFFFFFF
@@ -62,8 +63,8 @@ static double drnd()
 }
 
 #define SIZE 34
-
-#define N 10*1000;
+unsigned int BLOCK_SIZE = 512;
+const unsigned int N=4*1000;
 
 void
 cl_get_err_string(cl_int err, size_t n, char *str)
@@ -230,6 +231,62 @@ cl_get_err_string(cl_int err, size_t n, char *str)
   return;
 }
 
+void search_cpu(int len,int N, float *value_x, float* value_y, int *index_cpu, int *level_list, int* leaf_list, float* centerx_list, float *centery_list){
+       for (int i = 0; i< len; i++){
+           float width = pow(2.0,-level_list[i]);   
+           float xmin = centerx_list[i] - width;
+           float ymin = centery_list[i] - width;
+           float xmax = centerx_list[i] + width;
+           float ymax = centery_list[i] + width;
+          for (int j=0;j<N;j++){
+           if (value_x[j] >= xmin && value_x[j]<=xmax &&
+            value_y[j]>ymin && value_y[j]<=ymax)
+              //index_cpu[j] = leaf_list[i];
+              index_cpu[j] = i ;
+          }
+       }
+}
+
+void interpolation_cpu(int N, float* value_x, float *value_y, int* index_g, int *level_list_d, float *centerx_list_d, float* centery_list_d,  float *T1_list_d, float* T2_list_d, float * T3_list_d, float* T4_list_d,float* interp_value){
+    std::cout << "interpolation on cpu!"<<std::endl;
+    for(int i = 0;i< N;i++){
+	    int j = index_g[i];
+	    float width = powf(2.0,-level_list_d[j]);
+	    float xmin = centerx_list_d[j] - width;
+	    float ymin = centery_list_d[j] - width;
+	    float xmax = centerx_list_d[j] + width;
+	    float ymax = centery_list_d[j] + width; 
+
+	    // rescale x,y in the local cell
+	    float x_ref = (value_x[i]-xmin)/(xmax-xmin);
+	    float y_ref = (value_y[i]-ymin)/(ymax-xmin);
+	   
+	    // pickup the interpolation triangle 
+	    float x_nodes[3], y_nodes[3], var[3];
+	    x_nodes[0] = xmin;
+	    x_nodes[1] = x_ref>=y_ref?  xmax: xmax ;
+	    x_nodes[2] = x_ref>=y_ref?  xmax: xmin;
+
+	    y_nodes[0] = ymin;
+	    y_nodes[1] = x_ref>=y_ref? ymin:ymax ;
+	    y_nodes[2] = x_ref>=y_ref? ymax:ymax ;
+	   
+	    var[0] = T1_list_d[j];
+	    var[1] = x_ref>=y_ref? T2_list_d[j]: T3_list_d[j] ;
+	    var[2] = x_ref>=y_ref? T3_list_d[j]: T4_list_d[j];
+
+	float A = y_nodes[0]*(var[1]- var[2])  +  y_nodes[1]*(var[2] - var[0]) +  y_nodes[2]*(var[0] - var[1]);
+
+	float B = var[0]*(x_nodes[1] - x_nodes[2]) + var[1]*(x_nodes[2] - x_nodes[0]) +  var[2]*(x_nodes[0] - x_nodes[1]);
+
+	float C = x_nodes[0]*(y_nodes[1] - y_nodes[2]) + x_nodes[1]*(y_nodes[2] - y_nodes[0]) + x_nodes[2]*(y_nodes[0] - y_nodes[1]);
+
+	float D = -A*x_nodes[0] - B*y_nodes[0] - C*var[0];
+	interp_value[i] = -(A*value_x[i] + B*value_y[i] + D)/C;
+
+   }
+}
+
 int main(int argc, char *argv[])
 {
 
@@ -247,16 +304,15 @@ int main(int argc, char *argv[])
 
   cl_command_queue queue;
   cl_program      program;
-  cl_kernel       kernel;
+  cl_kernel       kernel[2]={NULL, NULL};
   cl_mem          c_data;
   cl_build_status build_status;
   cl_int         *h_data;
-  size_t          global_work_size[] = { SIZE, 0, 0 };
 
   int num_nodes, num_leafs;
   float rootwidth, xmin, xmax, ymin, ymax;
   int *level_list, *leaf_list;
-  float *centerx_list, *centery_list;
+  float *centerx_list, *centery_list; //*width_cpu;
   float *T1_list, *T2_list, *T3_list, *T4_list,*P1_list, *P2_list,*P3_list, *P4_list; // variable lists
         
 
@@ -340,8 +396,10 @@ int main(int argc, char *argv[])
   context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &err);
   OPENCL_CHECK_ERR(err);
 
+  //queue = clCreateCommandQueue(context, device_id,
+  //                             (cl_command_queue_properties) 0, &err);
   queue = clCreateCommandQueue(context, device_id,
-                               (cl_command_queue_properties) 0, &err);
+                               CL_QUEUE_PROFILING_ENABLE, &err);
   OPENCL_CHECK_ERR(err);
 
 
@@ -377,8 +435,14 @@ int main(int argc, char *argv[])
                 //cout << i << " " <<value_x[i] << " " << value_y[i]<<endl;
         }
 
-        // allocate device memory and data
-      printf("allocating memory on GPU!");
+    clock_t starttime, endtime; 
+    starttime = clock();
+    search_cpu(size, N, value_x, value_y, index_cpu, level_list, leaf_list, centerx_list, centery_list);
+    interpolation_cpu(N, value_x, value_y, index_cpu, level_list,centerx_list, centery_list, T1_list, T2_list, T3_list, T4_list,interp);
+    endtime = clock();
+    
+   // allocate device memory and data
+      printf("allocating memory on GPU!\n");
    level_list_d = clCreateBuffer(context, (cl_mem_flags) CL_MEM_COPY_HOST_PTR,
                           sizeof(int) * size, level_list, &err);
   OPENCL_CHECK_ERR(err);
@@ -405,7 +469,28 @@ int main(int argc, char *argv[])
    index_g = clCreateBuffer(context, (cl_mem_flags) CL_MEM_COPY_HOST_PTR,
                           sizeof(int) * N, index, &err);
   OPENCL_CHECK_ERR(err);
-  
+   T1_list_d = clCreateBuffer(context, (cl_mem_flags) CL_MEM_COPY_HOST_PTR,
+                          sizeof(float) * size, T1_list, &err);
+  OPENCL_CHECK_ERR(err);
+   T2_list_d = clCreateBuffer(context, (cl_mem_flags) CL_MEM_COPY_HOST_PTR,
+                          sizeof(float) * size, T2_list, &err);
+  OPENCL_CHECK_ERR(err);
+   T3_list_d = clCreateBuffer(context, (cl_mem_flags) CL_MEM_COPY_HOST_PTR,
+                          sizeof(float) * size, T3_list, &err);
+  OPENCL_CHECK_ERR(err);
+   T4_list_d = clCreateBuffer(context, (cl_mem_flags) CL_MEM_COPY_HOST_PTR,
+                          sizeof(float) * size, T4_list, &err);
+  OPENCL_CHECK_ERR(err);
+
+   interp_d = clCreateBuffer(context, (cl_mem_flags) CL_MEM_COPY_HOST_PTR,
+                          sizeof(float) * N, interp, &err);
+  OPENCL_CHECK_ERR(err);
+  //cl_mem width;
+  //width_cpu = (float *)  malloc(size*sizeof(float));
+
+  //width = clCreateBuffer(context, (cl_mem_flags) CL_MEM_COPY_HOST_PTR,
+  //                        sizeof(float) * size, index, &err);
+  OPENCL_CHECK_ERR(err);
   opencl_ex_ptr = (char *) opencl_ex;
   program = clCreateProgramWithSource(context, 1,
                                       (const char **) &opencl_ex_ptr,
@@ -413,7 +498,7 @@ int main(int argc, char *argv[])
   OPENCL_CHECK_ERR(err);
 
 
-  err = clBuildProgram(program, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+  err = clBuildProgram(program, 0, NULL, NULL, NULL, NULL );
   if (err != CL_SUCCESS && err != CL_BUILD_PROGRAM_FAILURE) {
     OPENCL_CHECK_ERR(err);
   }
@@ -430,7 +515,8 @@ int main(int argc, char *argv[])
       /*
        * Print the build log
        */
-      cl_char        *build_log = NULL;
+      void        *build_log = NULL;
+      //char        *build_log = NULL;
       size_t          build_log_len = 0;
 
       OPENCL_CHECK_ERR(clGetProgramBuildInfo
@@ -450,30 +536,93 @@ int main(int argc, char *argv[])
 
   } while (build_status == CL_BUILD_IN_PROGRESS);
 
-  kernel = clCreateKernel(program, "search_kernel", &err);
+  kernel[0] = clCreateKernel(program, "search_kernel", &err);
   OPENCL_CHECK_ERR(err);
+  kernel[1] = clCreateKernel(program, "interpolation", &err);
+  OPENCL_CHECK_ERR(err);
+  
 
-  OPENCL_SAFE_CALL(clSetKernelArg(kernel, 0, sizeof(c_data), &c_data));
+  size_t    local_work_size; 
+  clGetKernelWorkGroupInfo(kernel[0], device_id, CL_KERNEL_WORK_GROUP_SIZE,
+                          sizeof(size_t), &local_work_size, NULL);
+  printf("maxmium size : %d\n", local_work_size);
+  local_work_size = BLOCK_SIZE;
+  size_t    global_work_size =  ((num_leafs -1 +local_work_size)/local_work_size)*local_work_size;
+  printf("num_cells: %d , blocksize: %d, num_threads : %d\n", num_leafs, local_work_size, global_work_size);
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 0, sizeof(int), &num_leafs));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 1, sizeof( unsigned int), &N));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 5, sizeof(level_list_d), &level_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 6, sizeof(leaf_list_d), &leaf_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 7, sizeof(centerx_list_d), &centerx_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 8, sizeof(centery_list_d), &centery_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 2, sizeof(value_x_d), &value_x_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 3, sizeof(value_y_d), &value_y_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 4, sizeof(index_g), &index_g));
+  //OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 9, sizeof(width), &width));
+  
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 0, sizeof(unsigned int), &N));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 4, sizeof(level_list_d), &level_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 5, sizeof(centerx_list_d), &centerx_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 6, sizeof(centery_list_d), &centery_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 1, sizeof(value_x_d), &value_x_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 2, sizeof(value_y_d), &value_y_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 3, sizeof(index_g), &index_g));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 7, sizeof(T1_list_d), &T1_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 8, sizeof(T2_list_d), &T2_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 9, sizeof(T3_list_d), &T3_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 10, sizeof(T4_list_d), &T4_list_d));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 11, sizeof(interp_d), &interp_d));
+  
+  cl_event event;
+  cl_ulong start;
+  cl_ulong end;
   OPENCL_SAFE_CALL(clEnqueueNDRangeKernel
-                       (queue, kernel, 1, NULL, global_work_size, NULL, 0,
-                        NULL, NULL)
+                       (queue, kernel[0], 1, NULL,  &global_work_size, &local_work_size, 0,
+                        NULL, &event)
       );
-
+  clWaitForEvents(1, &event);
+  clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start,
+  NULL);
+  clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);
+  float search_time = (end - start)/1000000.0; 
+  printf("pass the search_kernel!!\n");
+ #if 1 
+  OPENCL_SAFE_CALL(clEnqueueNDRangeKernel
+                       (queue, kernel[1], 1, NULL,  &global_work_size, &local_work_size, 0,
+                        NULL, &event)
+                  );
+  clWaitForEvents(1, &event);
+  clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start,
+  NULL);
+  clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);
+#endif
+  float interpolation_time = (end - start)/1000000.0; 
   OPENCL_SAFE_CALL(clEnqueueReadBuffer
                        (queue, index_g, CL_TRUE, 0, sizeof(int) * N,
                         index, 0, NULL, NULL)
-      );
-
+                  );
+  printf("pass the interpolation_kernel!!\n");
+#if 1 
+  OPENCL_SAFE_CALL(clEnqueueReadBuffer
+                       (queue, interp_d, CL_TRUE, 0, sizeof(float) * N,
+                        interp_h, 0, NULL, NULL)
+                  );
+#endif
     // check the result
     for (int i=0; i < N; i++){
        assert(interp[i]=interp_h[i]);
-    if (index[i]<0)
-       printf("cell %d is not in this range!, cpu\n", i);
-    
+    //if (index[i]<0)
+       //cout <<"cell %d is not in this range!, cpu: "<< i << " " <<index_cpu[i]<< endl;
+     //  printf("the value is cell : %d %d \n",index[i],index_cpu[i] ); 
     //else
        //printf("the value is cell : %d %d \n",index[i],index_cpu[i] ); 
-    //   printf("the value is cell : %d %d %f %f\n",index[i],index_cpu[i], interp_h[i], interp[i] ); 
+       //printf("the value is cell : %d %d %f %f\n",index[i],index_cpu[i], interp_h[i], interp[i] ); 
     }
+    
+    //output the time
+    // printf("GPU %.1f ms\n", time);
+    printf(" GPU: search_time:%10.5f [ms], interpolation time:%10.5f[ms], total time: %10.5f\n", search_time, interpolation_time, search_time + interpolation_time); 
+     printf("CPU %ld ms\n", (int) (1000.0f * (endtime - starttime) / CLOCKS_PER_SEC));
 
   /* --------------clean up------------------*/
   OPENCL_SAFE_CALL(clReleaseMemObject(index_g));
@@ -482,7 +631,15 @@ int main(int argc, char *argv[])
   OPENCL_SAFE_CALL(clReleaseMemObject(centery_list_d));
   OPENCL_SAFE_CALL(clReleaseMemObject(centerx_list_d));
   OPENCL_SAFE_CALL(clReleaseMemObject(value_x_d));
-  OPENCL_SAFE_CALL(clReleaseKernel(value_y_d));
+  OPENCL_SAFE_CALL(clReleaseMemObject(value_y_d));
+  OPENCL_SAFE_CALL(clReleaseMemObject(T1_list_d));
+ OPENCL_SAFE_CALL(clReleaseMemObject(T2_list_d));
+  OPENCL_SAFE_CALL(clReleaseMemObject(T3_list_d));
+  OPENCL_SAFE_CALL(clReleaseMemObject(T4_list_d));
+  OPENCL_SAFE_CALL(clReleaseMemObject(interp_d));
+ 
+  OPENCL_SAFE_CALL(clReleaseKernel(kernel[0]));
+  OPENCL_SAFE_CALL(clReleaseKernel(kernel[1]));
   OPENCL_SAFE_CALL(clReleaseProgram(program));
   OPENCL_SAFE_CALL(clReleaseCommandQueue(queue));
   OPENCL_SAFE_CALL(clReleaseContext(context));
@@ -493,5 +650,11 @@ int main(int argc, char *argv[])
 	free(centery_list);
 	free(value_x);
 	free(value_y);
+	free(T1_list);
+        free(T2_list);
+	free(T3_list);
+	free(T4_list);
+	free(interp_h);
+	free(index_cpu);
   return failures;
 }

@@ -9,7 +9,7 @@ configure_file(
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-add_executable(cl_gen_header cl_gen_header.c)
+add_executable(cl_gen_header cl_gen_header.cpp)
 
 foreach(kernel ${OPENCL_KERNELS})
   add_custom_command (
@@ -20,7 +20,7 @@ foreach(kernel ${OPENCL_KERNELS})
     )
 endforeach(kernel)
 
-add_executable(opencl_ex opencl_ex.c opencl_ex.h)
+add_executable(opencl_ex opencl_ex.cpp opencl_ex.h)
 
 target_link_libraries(
   opencl_ex

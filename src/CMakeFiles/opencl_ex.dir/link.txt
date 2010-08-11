@@ -1,0 +1,1 @@
+/home/kloeckner/mach/x86_64/pool/bin/c++   -g  -fPIC CMakeFiles/opencl_ex.dir/opencl_ex.o  -o opencl_ex -rdynamic /opt/ati-stream-sdk-v2.2-lnx64/lib/x86_64/libOpenCL.so -Wl,-rpath,/opt/ati-stream-sdk-v2.2-lnx64/lib/x86_64 

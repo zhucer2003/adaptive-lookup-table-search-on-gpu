@@ -1,9 +1,9 @@
-cmake_minimum_required(VERSION 2.8)
+#cmake_minimum_required(VERSION 2.8)
 
 option(WITH_WARNINGS "Compile with warnings" ON)
 option(BUILD_SHARED_LIBS "Build shared libraries." OFF)
 
-project(OpenCL_EX C)
+project(OpenCL_EX CXX)
 
 # Set the build type
 if(NOT CMAKE_BUILD_TYPE)
