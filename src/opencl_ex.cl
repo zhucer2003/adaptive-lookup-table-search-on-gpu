@@ -2,17 +2,17 @@ __kernel void search_kernel(
      int len,
      const unsigned  int N,
      __global  float *value_x_d,
-     __global  float* value_y_d,
+     __global  float *value_y_d,
      __global  int *index_g,
      __global  int *level_list_d,
-     __global  int* leaf_list_d,
-     __global  float* centerx_list_d,
-     __global  float* centery_list_d){
+     __global  int *leaf_list_d,
+     __global  float *centerx_list_d,
+     __global  float *centery_list_d){
     float xmin, ymin, xmax, ymax, width;
     int  loc_id; 
     int i= get_global_id(0);
-    __local float x_loc[512], y_loc[512];
-    const int s_width= 512; //get_work_dim();
+    __local float x_loc[256], y_loc[256];
+    const int s_width= 256; //get_work_dim();
    
    float g = level_list_d[i];
   if (i< len){
@@ -46,18 +46,19 @@ __kernel void search_kernel(
 
 __kernel void interpolation(
           const unsigned int N, 
-          __global float* value_x,
+          __global float *value_x,
           __global float *value_y, 
-          __global int* index_g, 
+          __global int *index_g, 
           __global int *level_list_d, 
           __global float *centerx_list_d, 
-          __global float* centery_list_d,
+          __global float *centery_list_d,
           __global float *T1_list_d, 
-          __global float* T2_list_d, 
-          __global float * T3_list_d, 
-          __global float* T4_list_d,
-          __global float* interp_value){
-
+          __global float *T2_list_d, 
+          __global float *T3_list_d, 
+          __global float *T4_list_d,
+          __global float *interp_value){
+    int i = get_local_id(0);
+#if 0 
     float xmin, ymin, xmax, ymax, width;
     int i = get_local_id(0);
     if(i< N){
@@ -100,4 +101,7 @@ __kernel void interpolation(
 	float D = -A*x_nodes[0] - B*y_nodes[0] - C*var[0];
 	interp_value[i] = -(A*value_x[i] + B*value_y[i] + D)/C;
    }
+
+      //barrier(CLK_LOCAL_MEM_FENCE);
+#endif
 }

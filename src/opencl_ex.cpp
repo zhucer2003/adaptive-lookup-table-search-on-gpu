@@ -63,8 +63,8 @@ static double drnd()
 }
 
 #define SIZE 34
-unsigned int BLOCK_SIZE = 512;
-const unsigned int N=4*1000;
+unsigned int BLOCK_SIZE = 256;
+const unsigned int N=10*1000;
 
 void
 cl_get_err_string(cl_int err, size_t n, char *str)
@@ -305,9 +305,7 @@ int main(int argc, char *argv[])
   cl_command_queue queue;
   cl_program      program;
   cl_kernel       kernel[2]={NULL, NULL};
-  cl_mem          c_data;
   cl_build_status build_status;
-  cl_int         *h_data;
 
   int num_nodes, num_leafs;
   float rootwidth, xmin, xmax, ymin, ymax;
@@ -318,11 +316,14 @@ int main(int argc, char *argv[])
 
   OPENCL_SAFE_CALL(clGetPlatformIDs(MAX_PLATFORMS, platforms,
                                         &num_platforms));
-
+  cl_device_id    device_query_id[MAX_PLATFORMS] ;
+  cl_uint num_entries, num_devices;
+   assert(num_platforms<=MAX_PLATFORMS);  
+   printf("platform information: %d\n", num_platforms);
   for (i = 0; i < num_platforms; ++i) {
     char            buf[BUFSIZ];
-
-    printf("%3d: ", (int) i);
+    
+    printf("\n%3d: ", (int) i);
 
     OPENCL_SAFE_CALL(clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME,
                                            sizeof(buf), buf, NULL));
@@ -346,6 +347,31 @@ int main(int argc, char *argv[])
                                            sizeof(buf), buf, NULL));
 
     printf("%s\n", buf);
+   
+    OPENCL_SAFE_CALL(clGetDeviceIDs(platforms[i],
+        CL_DEVICE_TYPE_ALL,
+        MAX_PLATFORMS,
+        device_query_id,
+        &num_devices));
+    assert(num_devices<= MAX_PLATFORMS);
+    printf("device information: %d\n", num_devices);
+    printf("number of device: %d\n", num_devices);
+    for (int j = 0; j < num_devices; ++j) {
+    char            buf[BUFSIZ];
+
+    printf("%3d: ", (int) j);
+
+    OPENCL_SAFE_CALL(clGetDeviceInfo(device_query_id[j],CL_DEVICE_NAME,
+                                           sizeof(buf), buf, NULL));
+
+       printf("%s \n  ", buf);
+
+    OPENCL_SAFE_CALL(clGetDeviceInfo(device_query_id[j],CL_DEVICE_VERSION,
+                                           sizeof(buf), buf, NULL));
+
+       printf("%s \n  ", buf);
+      }
+
   }
   
   // read the data
@@ -388,11 +414,18 @@ int main(int argc, char *argv[])
 	int size= num_leafs; // numbet of elements to reduce 
 
   assert(num_platforms > 0);
-
+  
+ #if 0 
   OPENCL_SAFE_CALL(clGetDeviceIDs(platforms[0], (cl_device_type)
                                       CL_DEVICE_TYPE_DEFAULT, 1,
                                       &device_id, NULL));
-
+#endif
+  OPENCL_SAFE_CALL(clGetDeviceIDs(platforms[0],
+        CL_DEVICE_TYPE_ALL,
+        MAX_PLATFORMS,
+        device_query_id,
+        &num_devices));
+  device_id = device_query_id[2];
   context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &err);
   OPENCL_CHECK_ERR(err);
 
@@ -536,6 +569,7 @@ int main(int argc, char *argv[])
 
   } while (build_status == CL_BUILD_IN_PROGRESS);
 
+  printf("creating program...................\n"); 
   kernel[0] = clCreateKernel(program, "search_kernel", &err);
   OPENCL_CHECK_ERR(err);
   kernel[1] = clCreateKernel(program, "interpolation", &err);
@@ -560,7 +594,7 @@ int main(int argc, char *argv[])
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 4, sizeof(index_g), &index_g));
   //OPENCL_SAFE_CALL(clSetKernelArg(kernel[0], 9, sizeof(width), &width));
   
-  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 0, sizeof(unsigned int), &N));
+  OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 0, sizeof(const unsigned int), &N));
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 4, sizeof(level_list_d), &level_list_d));
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 5, sizeof(centerx_list_d), &centerx_list_d));
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 6, sizeof(centery_list_d), &centery_list_d));
@@ -572,29 +606,39 @@ int main(int argc, char *argv[])
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 9, sizeof(T3_list_d), &T3_list_d));
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 10, sizeof(T4_list_d), &T4_list_d));
   OPENCL_SAFE_CALL(clSetKernelArg(kernel[1], 11, sizeof(interp_d), &interp_d));
-  
-  cl_event event;
+  printf("finishing allocating memory"); 
+  cl_event event[2];
   cl_ulong start;
   cl_ulong end;
   OPENCL_SAFE_CALL(clEnqueueNDRangeKernel
                        (queue, kernel[0], 1, NULL,  &global_work_size, &local_work_size, 0,
-                        NULL, &event)
+                        NULL, &event[0])
       );
-  clWaitForEvents(1, &event);
-  clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start,
+  clWaitForEvents(1, &event[0]);
+  clGetEventProfilingInfo(event[0], CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start,
   NULL);
-  clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);
+  clGetEventProfilingInfo(event[0], CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);
   float search_time = (end - start)/1000000.0; 
   printf("pass the search_kernel!!\n");
- #if 1 
+ 
+#if 1
+  global_work_size =  ((N -1 +local_work_size)/local_work_size)*local_work_size;
+ 
+  printf("num_cells: %d , blocksize: %d, global_num_threads : %d\n", num_leafs, local_work_size, global_work_size);
   OPENCL_SAFE_CALL(clEnqueueNDRangeKernel
                        (queue, kernel[1], 1, NULL,  &global_work_size, &local_work_size, 0,
-                        NULL, &event)
+                        NULL, &event[1])
                   );
-  clWaitForEvents(1, &event);
-  clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start,
-  NULL);
-  clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);
+#endif
+#if 1
+  printf("pass the interpolation_kernel!!\n");
+  OPENCL_SAFE_CALL(clWaitForEvents (1, &event[1]));
+  printf("pass the interpolation_kernel!!\n");
+  OPENCL_SAFE_CALL(clGetEventProfilingInfo (event[1], CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start,
+  NULL));
+  printf("pass the interpolation_kernel!!\n");
+  OPENCL_SAFE_CALL(clGetEventProfilingInfo(event[1], CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL));
+  printf("pass the interpolation_kernel!!\n");
 #endif
   float interpolation_time = (end - start)/1000000.0; 
   OPENCL_SAFE_CALL(clEnqueueReadBuffer
@@ -616,15 +660,21 @@ int main(int argc, char *argv[])
      //  printf("the value is cell : %d %d \n",index[i],index_cpu[i] ); 
     //else
        //printf("the value is cell : %d %d \n",index[i],index_cpu[i] ); 
-       //printf("the value is cell : %d %d %f %f\n",index[i],index_cpu[i], interp_h[i], interp[i] ); 
+       //printf("the value is cell :%d %d %d %f %f\n",i, index[i],index_cpu[i], interp_h[i], interp[i] ); 
     }
     
     //output the time
-    // printf("GPU %.1f ms\n", time);
     printf(" GPU: search_time:%10.5f [ms], interpolation time:%10.5f[ms], total time: %10.5f\n", search_time, interpolation_time, search_time + interpolation_time); 
      printf("CPU %ld ms\n", (int) (1000.0f * (endtime - starttime) / CLOCKS_PER_SEC));
 
   /* --------------clean up------------------*/
+  OPENCL_SAFE_CALL(clReleaseEvent(event[0])) ;
+  OPENCL_SAFE_CALL(clReleaseEvent(event[1])) ;
+  OPENCL_SAFE_CALL(clFlush(queue));
+  OPENCL_SAFE_CALL(clFinish(queue));
+  OPENCL_SAFE_CALL(clReleaseKernel(kernel[0]));
+  OPENCL_SAFE_CALL(clReleaseKernel(kernel[1]));
+  OPENCL_SAFE_CALL(clReleaseProgram(program));
   OPENCL_SAFE_CALL(clReleaseMemObject(index_g));
   OPENCL_SAFE_CALL(clReleaseMemObject(leaf_list_d));
   OPENCL_SAFE_CALL(clReleaseMemObject(level_list_d));
@@ -633,17 +683,13 @@ int main(int argc, char *argv[])
   OPENCL_SAFE_CALL(clReleaseMemObject(value_x_d));
   OPENCL_SAFE_CALL(clReleaseMemObject(value_y_d));
   OPENCL_SAFE_CALL(clReleaseMemObject(T1_list_d));
- OPENCL_SAFE_CALL(clReleaseMemObject(T2_list_d));
+  OPENCL_SAFE_CALL(clReleaseMemObject(T2_list_d));
   OPENCL_SAFE_CALL(clReleaseMemObject(T3_list_d));
   OPENCL_SAFE_CALL(clReleaseMemObject(T4_list_d));
   OPENCL_SAFE_CALL(clReleaseMemObject(interp_d));
- 
-  OPENCL_SAFE_CALL(clReleaseKernel(kernel[0]));
-  OPENCL_SAFE_CALL(clReleaseKernel(kernel[1]));
-  OPENCL_SAFE_CALL(clReleaseProgram(program));
   OPENCL_SAFE_CALL(clReleaseCommandQueue(queue));
   OPENCL_SAFE_CALL(clReleaseContext(context));
-  free(index);
+        free(index);
         free(level_list);
 	free(leaf_list);
 	free(centerx_list);
@@ -655,6 +701,11 @@ int main(int argc, char *argv[])
 	free(T3_list);
 	free(T4_list);
 	free(interp_h);
+	free(interp);
 	free(index_cpu);
+	free(P1_list);
+        free(P2_list);
+	free(P3_list);
+	free(P4_list);
   return failures;
 }
